@@ -6,7 +6,34 @@ namespace ABCdotNet;
 
 public delegate double Objective(Span<double> source);
 
-public enum FitnessObjective { Minimize = -1 , Maximize = 1 }
+public enum FitnessObjective { Minimize = -1, Maximize = 1 }
+
+public enum BoundaryCondition
+{
+    /// <summary>
+    /// Clamped Boundary Condition.
+    /// If a value exceeds the system boundaries,
+    /// it will be placed back at the exceeding point.
+    /// </summary>
+    CBC,
+    /// <summary>
+    /// Periodic Boundary Condition.
+    /// If a value exceeds the system boundaries, 
+    /// it will be placed back inside the domain
+    /// at a position which is equally-distanced to the boundary as the exceeding point,
+    /// but the entrance is made in the same direction, from the other corresponding end of the system.
+    /// </summary>
+    PBC,
+    /// <summary>
+    /// Reflective Boundary Condition.
+    /// If a value exceeds the system boundaries,
+    /// it will be placed back inside the domain
+    /// at a position which is equally-distanced to the boundary as the exceeding point,
+    /// but in an opposite direction.
+    /// </summary>
+    RBC
+}
+
 
 public class Colony
 {
@@ -25,6 +52,7 @@ public class Colony
     public int Cycles { get; init; } = 20;
 
     public FitnessObjective FitnessObjective { get; init; } = FitnessObjective.Minimize;
+    public BoundaryCondition BoundaryCondition { get; init; } = BoundaryCondition.RBC;
 
     public double MinValue { get; init; } = -1.0;
     public double MaxValue { get; init; } = 1.0;
@@ -63,7 +91,10 @@ public class Colony
             throw new Exception($"{nameof(Cycles)} must be greater then 0.");
 
         if (!Enum.IsDefined(FitnessObjective))
-            throw new Exception($"{nameof(FitnessObjective)}'s value is invalid.");
+            throw new Exception($"{nameof(FitnessObjective)} has an undefined value.");
+
+        if (!Enum.IsDefined(BoundaryCondition))
+            throw new Exception($"{nameof(BoundaryCondition)} has an undefined value.");
     }
 
     private void InitBuffers()
@@ -216,7 +247,22 @@ public class Colony
 
         // generate a new source from the current source (i)
         GetSource(_frontBuffer, i).CopyTo(buffer);
-        buffer[j] = Math.Clamp(Vij, MinValue, MaxValue);
+
+        switch (BoundaryCondition)
+        {
+            case BoundaryCondition.CBC:
+                buffer[j] = BeeMath.CBC(Vij, MinValue, MaxValue);
+                break;
+            case BoundaryCondition.PBC:
+                buffer[j] = BeeMath.PBC(Vij, MinValue, MaxValue);
+                break;
+            case BoundaryCondition.RBC:
+                buffer[j] = BeeMath.RBC(Vij, MinValue, MaxValue);
+                break;
+            default:
+                buffer[j] = Vij;
+                break;
+        }
     }
 
     private void GreedySelection(Span<double> buffer, int i)
@@ -253,7 +299,7 @@ public class Colony
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public double Fitness(double f)
     {
-        return f >= 0 ? 1 / (1 + f) : 1 + Math.Abs(f);
+        return f >= 0.0 ? 1.0 / (1.0 + f) : 1.0 + Math.Abs(f);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
