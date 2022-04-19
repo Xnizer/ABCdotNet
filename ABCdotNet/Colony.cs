@@ -4,7 +4,7 @@ using System.Runtime.CompilerServices;
 
 namespace ABCdotNet;
 
-public delegate double Objective(Span<double> source);
+public delegate double ObjectiveFunction(Span<double> source);
 
 public enum FitnessObjective { Minimize = -1, Maximize = 1 }
 
@@ -37,7 +37,7 @@ public enum BoundaryCondition
 
 public class Colony
 {
-    private readonly Random _random;
+    private readonly Random _rng;
 
     private double[] _frontBuffer;
     private double[] _backBuffer;
@@ -46,6 +46,8 @@ public class Colony
 
     private double[] _bestSource;
     private double _bestFitness;
+
+    private double _fitnessSum = 0.0;
 
     public int Size { get; init; } = 10;
     public int Dimensions { get; init; } = 2;
@@ -60,17 +62,17 @@ public class Colony
     public ReadOnlySpan<double> GetSource(int index) => GetSource(_frontBuffer, index);
     public ReadOnlySpan<double> FitnessValues => _fitness;
     public ReadOnlySpan<int> Trials => _trials;
-    public ReadOnlySpan<double> BestSource => _bestSource;
-    public double BestFitness => _bestFitness;
+    public ReadOnlySpan<double> Solution => _bestSource;
+    public double SolutionFitness => _bestFitness;
 
-    public Objective Objective { get; init; } = (source) =>
+    public ObjectiveFunction ObjectiveFunction { get; init; } = (source) =>
     {
         throw new NotImplementedException();
     };
 
     public Colony(int seed)
     {
-        _random = new Random(seed);
+        _rng = new Random(seed);
 
         _frontBuffer = _backBuffer = _fitness = _bestSource = Array.Empty<double>();
         _trials = Array.Empty<int>();
@@ -128,7 +130,7 @@ public class Colony
             Span<double> source = GetSource(_frontBuffer, i);
 
             GenerateRandomSource(source);
-            _fitness[i] = Fitness(Objective(source));
+            _fitness[i] = Fitness(ObjectiveFunction(source));
             _trials[i] = 0;
         }
 
@@ -146,13 +148,20 @@ public class Colony
     {
         Span<double> buffer = stackalloc double[Dimensions];
 
+        // the sum of fitness values is needed for
+        // calculating the probability value of sources
+        // in the next onlooker bee phase.
+        _fitnessSum = 0.0;
+
         for (int i = 0; i < Size; i++)
         {
             GenerateSource(buffer, i);
             GreedySelection(buffer, i);
+
+            _fitnessSum += _fitness[i];
         }
 
-        SwapBuffers();
+        SwapFrontAndBackBuffers();
     }
 
     private void OnLookerBeePhase()
@@ -161,18 +170,13 @@ public class Colony
         // until the number of updated sources
         // equals the number of onlooker bees
 
-        double fitnessSum = 0d;
-
-        for (int i = 0; i < _fitness.Length; i++)
-            fitnessSum += _fitness[i];
-
         Span<double> buffer = stackalloc double[Dimensions];
 
         for (int i = 0; i < Size; i++)
         {
-            double probability = _fitness[i] / fitnessSum;
+            double probability = _fitness[i] / _fitnessSum;
 
-            double random = _random.NextDouble();
+            double random = _rng.NextDouble();
 
             if (random <= probability)
             {
@@ -183,12 +187,11 @@ public class Colony
                 GetSource(_frontBuffer, i).CopyTo(GetSource(_backBuffer, i));
         }
 
-        SwapBuffers();
+        SwapFrontAndBackBuffers();
 
         MemorizeBestSource();
     }
 
-    public int ScoutOperations { get; private set; }
     private void ScoutBeePhase()
     {
         int limit = (int)Math.Round(0.5 * Size * Dimensions);
@@ -200,10 +203,8 @@ public class Colony
                 Span<double> source = GetSource(_frontBuffer, i);
 
                 GenerateRandomSource(source);
-                _fitness[i] = Fitness(Objective(source));
+                _fitness[i] = Fitness(ObjectiveFunction(source));
                 _trials[i] = 0;
-
-                ScoutOperations++;
             }
         }
     }
@@ -213,24 +214,22 @@ public class Colony
         Debug.Assert(buffer.Length == Dimensions);
 
         for (int j = 0; j < Dimensions; j++)
-        {
             // Xij = Xmin.j + rand[0,1] * (Xmax.j - Xmin.j)
-            buffer[j] = MinValue + _random.NextDouble() * (MaxValue - MinValue);
-
-            Debug.Assert(buffer[j] >= MinValue);
-            Debug.Assert(buffer[j] <= MaxValue);
-        }
+            buffer[j] = MinValue + _rng.NextDouble() * (MaxValue - MinValue);
     }
 
     private void GenerateSource(Span<double> buffer, int i)
     {
+        Debug.Assert(buffer.Length == Dimensions);
+        Debug.Assert(i >= 0 && i < Size);
+
         // pick a random dimension (j)
-        int j = _random.Next(Dimensions);
+        int j = _rng.Next(Dimensions);
 
         // pick a random source (k) that is different from the current source (i)
         int k;
         do
-            k = _random.Next(Size);
+            k = _rng.Next(Size);
         while (k == i);
 
         // value of (j) dimension of the current source (i)
@@ -240,7 +239,7 @@ public class Colony
         double Xkj = _frontBuffer[k * Dimensions + j];
 
         // pick a random scaling factor between -1 and +1
-        double rand = _random.NextDouble() * 2 - 1;
+        double rand = _rng.NextDouble() * 2 - 1;
 
         // generate a new value for the (j) dimension
         double Vij = Xij + rand * (Xij - Xkj);
@@ -268,7 +267,7 @@ public class Colony
     private void GreedySelection(Span<double> buffer, int i)
     {
         // the fitness value of the new food source
-        double fitness = Fitness(Objective(buffer));
+        double fitness = Fitness(ObjectiveFunction(buffer));
 
         // copy the new food source to the back buffer when it has better fitness
         if (CompareFitness(fitness, _fitness[i]) > 0)
@@ -315,7 +314,7 @@ public class Colony
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private void SwapBuffers()
+    private void SwapFrontAndBackBuffers()
     {
         (_frontBuffer, _backBuffer) = (_backBuffer, _frontBuffer);
     }

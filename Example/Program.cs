@@ -13,9 +13,10 @@ namespace Example
                 MaxValue = 5,
                 Dimensions = 2,
                 Size = 10,
-                Cycles = 25,
+                Cycles = 100,
                 FitnessObjective = FitnessObjective.Maximize,
-                Objective = (source) =>
+                BoundaryCondition = BoundaryCondition.RBC,
+                ObjectiveFunction = (source) =>
                 {
                     double x = source[0];
                     double y = source[1];

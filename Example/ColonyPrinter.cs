@@ -7,9 +7,6 @@ namespace Example
     {
         public static void Print(Colony colony)
         {
-            Console.WriteLine($"Scout operations: {colony.ScoutOperations}");
-            Console.WriteLine();
-
             Console.WriteLine($"{"Source:",-36}{"Fitness:",-20}{"Trials:"}");
 
             for (int i = 0; i < colony.Size; i++)
@@ -17,7 +14,7 @@ namespace Example
 
             Console.WriteLine();
             Console.ForegroundColor = ConsoleColor.Green;
-            PrintSource(colony.BestSource, colony.BestFitness, 0);
+            PrintSource(colony.Solution, colony.SolutionFitness, 0);
             Console.ForegroundColor = ConsoleColor.Gray;
         }
 
