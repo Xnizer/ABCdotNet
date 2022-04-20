@@ -32,4 +32,10 @@ public static class BeeMath
 
         return min + Math.Abs(phase - (period * Math.Floor(phase / period)) - diff);
     }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static double Fitness(double f)
+    {
+        return f >= 0.0 ? 1.0 / (1.0 + f) : 1.0 + Math.Abs(f);
+    }
 }

@@ -10,7 +10,7 @@ namespace Example
             Console.WriteLine($"{"Source:",-36}{"Fitness:",-20}{"Trials:"}");
 
             for (int i = 0; i < colony.Size; i++)
-                PrintSource(colony.GetSource(i), colony.FitnessValues[i], colony.Trials[i]);
+                PrintSource(colony.GetSource(i), colony.GetFitness(i), colony.GetTrialCount(i));
 
             Console.WriteLine();
             Console.ForegroundColor = ConsoleColor.Green;
@@ -18,7 +18,7 @@ namespace Example
             Console.ForegroundColor = ConsoleColor.Gray;
         }
 
-        private static void PrintSource(ReadOnlySpan<double> source, double fitness, int trials)
+        private static void PrintSource(ReadOnlySpan<double> source, double fitness, double trials)
         {
             string str = "";
 
