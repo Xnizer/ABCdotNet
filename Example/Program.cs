@@ -22,9 +22,9 @@ namespace Example
                     double y = source[1];
 
                     return
-                        Math.Pow(x, 2.0) -
+                        x * x -
                         x * y +
-                        Math.Pow(y, 2.0) +
+                        y * y +
                         2.0 * x +
                         4.0 * y +
                         3.0;
