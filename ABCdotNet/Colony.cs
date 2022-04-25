@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Runtime.CompilerServices;
+using Redzen.Random;
 
 namespace ABCdotNet;
 
@@ -36,7 +37,7 @@ public enum BoundaryCondition
 
 public class Colony
 {
-    private readonly Random _rng;
+    private readonly Xoshiro256StarStar  _rng;
 
     private double[]? _frontBuffer;
     private double[]? _backBuffer;
@@ -73,9 +74,9 @@ public class Colony
         throw new NotImplementedException();
     };
 
-    public Colony(int seed)
+    public Colony(ulong seed)
     {
-        _rng = new Random(seed);
+        _rng = new Xoshiro256StarStar(seed);
     }
 
     private void ValidateParameters()
