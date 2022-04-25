@@ -44,27 +44,52 @@ public class Colony
 
     private double[]? _solution;
 
-    private double _fitnessSum = 0.0;
+    private double _totalFitness;
+    private double _limit;
 
     private int _sourceSize;
     private int _fitnessOffset;
     private int _trialsOffset;
 
-    private int _limit;
 
+    /// <summary>
+    /// The number of food sources (candidate solutions), and employed bees that exploit those sources.
+    /// </summary>
     public int Size { get; init; } = 10;
+
+    /// <summary>
+    /// The dimensions of a food source position.
+    /// Represent the number of objective function parameters.
+    /// </summary>
     public int Dimensions { get; init; } = 2;
+
+    /// <summary>
+    /// The number of iterations in the colony simulation.
+    /// </summary>
     public int Cycles { get; init; } = 20;
 
+    /// <summary>
+    /// Indicates whether the objective of the colony is to minimize or maximize the fitness value of a solution.
+    /// </summary>
     public FitnessObjective FitnessObjective { get; init; } = FitnessObjective.Minimize;
+    /// <summary>
+    /// Indicates how out-of-bound values of are treated.
+    /// </summary>
     public BoundaryCondition BoundaryCondition { get; init; } = BoundaryCondition.RBC;
 
+    /// <summary>
+    /// The lower boundary for a value of a parameter in a solution.
+    /// </summary>
     public double MinValue { get; init; } = -1.0;
+
+    /// <summary>
+    /// The upper boundary for a value of a parameter in a solution.
+    /// </summary>
     public double MaxValue { get; init; } = 1.0;
 
-    public ReadOnlySpan<double> GetSource(int index) => FrontBufferSource(index).Slice(0, Dimensions);
-    public double GetFitness(int index) => FrontBufferSource(index)[_fitnessOffset];
-    public double GetTrialCount(int index) => FrontBufferSource(index)[_trialsOffset];
+    public ReadOnlySpan<double> GetSource(int sourceIndex) => FrontBufferSource(sourceIndex).Slice(0, Dimensions);
+    public double GetFitness(int sourceIndex) => FrontBufferSource(sourceIndex)[_fitnessOffset];
+    public double GetTrialCount(int sourceIndex) => FrontBufferSource(sourceIndex)[_trialsOffset];
 
     public ReadOnlySpan<double> Solution => _solution.AsSpan(0, Dimensions);
     public double SolutionFitness => _solution.AsSpan()[_fitnessOffset];
@@ -100,13 +125,13 @@ public class Colony
             throw new Exception($"{nameof(BoundaryCondition)} has an undefined value.");
     }
 
-    bool _started = false;
+    bool _running = false;
     public void Run()
     {
-        if (_started)
-            throw new Exception();
+        if (_running)
+            return;
 
-        _started = true;
+        _running = true;
 
         ValidateParameters();
 
@@ -137,6 +162,8 @@ public class Colony
 
         //_frontBuffer = Array.Empty<double>();
         _backBuffer = Array.Empty<double>();
+
+        _running = false;
     }
 
     private void EmployedBeePhase()
@@ -144,13 +171,13 @@ public class Colony
         // the sum of fitness values is needed for
         // calculating the probability value of sources
         // in the next onlooker bee phase.
-        _fitnessSum = 0.0;
+        _totalFitness = 0.0;
 
         for (int i = 0; i < Size; i++)
         {
-            MutateSource(i);
+            ExploreNearbySource(i);
 
-            _fitnessSum += BackBufferSource(i)[_fitnessOffset]; // TODO: not thread safe
+            _totalFitness += BackBufferSource(i)[_fitnessOffset]; // TODO: not thread safe
         }
 
         SwapFrontAndBackBuffers();
@@ -163,12 +190,12 @@ public class Colony
             var currentSource = FrontBufferSource(i);
             var outputSource = BackBufferSource(i);
 
-            double probability = currentSource[_fitnessOffset] / _fitnessSum;
+            double probability = currentSource[_fitnessOffset] / _totalFitness;
 
             double random = _rng.NextDouble();
 
             if (random <= probability)
-                MutateSource(i);
+                ExploreNearbySource(i);
             else
                 currentSource.CopyTo(outputSource);
 
@@ -206,7 +233,7 @@ public class Colony
         output[_trialsOffset] = 0.0;
     }
 
-    private void MutateSource(int i)
+    private void ExploreNearbySource(int i)
     {
         // pick a random source (k) that is different from the current source (i)
         int k;
@@ -227,7 +254,7 @@ public class Colony
         double Xkj = randomSource[j];
 
         // pick a random scaling factor between -1 and +1
-        double rand = _rng.NextDouble() * 2 - 1;
+        double rand = _rng.NextDouble() * 2.0 - 1.0;
 
         // generate a new value for the (j) dimension
         double Vij = Xij + rand * (Xij - Xkj);
