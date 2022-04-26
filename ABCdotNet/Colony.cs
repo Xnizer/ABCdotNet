@@ -6,7 +6,7 @@ namespace ABCdotNet;
 
 public delegate double ObjectiveFunction(ReadOnlySpan<double> source);
 
-public enum FitnessObjective { Minimize = -1, Maximize = 1 }
+public enum FitnessObjective { Minimize, Maximize }
 
 public enum BoundaryCondition
 {
@@ -36,21 +36,19 @@ public enum BoundaryCondition
 
 public class Colony
 {
-    private readonly Xoshiro256StarStar  _rng;
+    private readonly Xoshiro256StarStar _rng;
 
     private double[] _frontBuffer;
     private double[] _backBuffer;
 
     private double[] _solution;
 
-    private double _totalFitness;
-    private double _limit;
-
     private int _sourceSize;
     private uint _sourceSizeInBytes;
     private int _fitnessOffset;
     private int _trialsOffset;
 
+    private bool _minimizeFitness;
 
     /// <summary>
     /// The number of food sources (candidate solutions),
@@ -145,7 +143,7 @@ public class Colony
         _fitnessOffset = Dimensions;
         _trialsOffset = _fitnessOffset + 1;
 
-        _limit = Size * Dimensions;
+        _minimizeFitness = FitnessObjective == FitnessObjective.Minimize ? true : false;
 
         _frontBuffer = new double[_sourceSize * Size];
         _backBuffer = new double[_sourceSize * Size];
@@ -157,76 +155,60 @@ public class Colony
             GenerateRandomSource(i);
         SwapFrontAndBackBuffers();
 
+        double limit = Size * Dimensions;
+
         // colony simulation
-        for (int i = 0; i < Cycles; i++)
+        int cycle = 0;
+        while (cycle++ < Cycles)
         {
-            EmployedBeePhase();
-            OnLookerBeePhase();
-            ScoutBeePhase();
+            double totalFitness = 0.0;
+
+            // employed bee
+            for (int i = 0; i < Size; i++)
+            {
+                ExploreNearbySource(i);
+                totalFitness += _backBuffer[ItemIndex(i, _fitnessOffset)];
+            }
+
+            SwapFrontAndBackBuffers();
+
+            // onlooker and scout bees
+            for (int i = 0; i < Size; i++)
+            {
+                double fitness = _frontBuffer[ItemIndex(i, _fitnessOffset)];
+                double probability = fitness / totalFitness;
+                double random = _rng.NextDouble();
+
+                bool copied = false;
+                if (random <= probability)
+                {
+                    ExploreNearbySource(i);
+                    copied = true;
+                }
+
+                double trials = _frontBuffer[ItemIndex(i, _trialsOffset)];
+                if (trials > limit)
+                {
+                    GenerateRandomSource(i);
+                    copied = true;
+                }
+
+                if (copied == false)
+                    CopySourceFromFrontToBackBuffer(i);
+            }
+
+            SwapFrontAndBackBuffers();
         }
 
         //_frontBuffer = Array.Empty<double>();
-        _backBuffer = Array.Empty<double>();
+        //_backBuffer = Array.Empty<double>();
 
         _running = false;
     }
 
-    private void EmployedBeePhase()
-    {
-        // the sum of fitness values is needed for
-        // calculating the probability value of sources
-        // in the next onlooker bee phase.
-        _totalFitness = 0.0;
-
-        for (int i = 0; i < Size; i++)
-        {
-            ExploreNearbySource(i);
-
-            _totalFitness += _backBuffer[ItemIndex(i, _fitnessOffset)];
-        }
-
-        SwapFrontAndBackBuffers();
-    }
-
-    private void OnLookerBeePhase()
-    {
-        for (int i = 0; i < Size; i++)
-        {
-            double fitness = _frontBuffer[ItemIndex(i, _fitnessOffset)];
-
-            double probability = fitness / _totalFitness;
-
-            double random = _rng.NextDouble();
-
-            if (random <= probability)
-                ExploreNearbySource(i);
-            else
-                CopySourceFromFrontToBackBuffer(i);
-
-            MemorizeIfBestSource(i);
-        }
-
-        SwapFrontAndBackBuffers();
-    }
-
-    private void ScoutBeePhase()
-    {
-        for (int i = 0; i < Size; i++)
-        {
-            double trials = _frontBuffer[ItemIndex(i, _trialsOffset)];
-
-            if (trials > _limit)
-                GenerateRandomSource(i);
-            else
-                CopySourceFromFrontToBackBuffer(i);
-        }
-
-        SwapFrontAndBackBuffers();
-    }
-
     private void GenerateRandomSource(int sourceIndex)
     {
-        // generate a value for each dimension using the formula:
+        // generate a random value for each dimension using the formula:
         // Xij = Xmin.j + rand[0,1] * (Xmax.j - Xmin.j)
         for (int j = 0; j < Dimensions; j++)
             _backBuffer[ItemIndex(sourceIndex, j)] = MinValue + _rng.NextDouble() * (MaxValue - MinValue);
@@ -288,21 +270,19 @@ public class Colony
         _backBuffer[trialsIndex] = 0.0;
 
         // greedy selection
-        if (CompareFitness(_frontBuffer[fitnessIndex], fitness) >= 0)
+        if (BetterFitness(_frontBuffer[fitnessIndex], fitness))
         {
             CopySourceFromFrontToBackBuffer(i);
             _backBuffer[trialsIndex]++;
         }
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private void MemorizeIfBestSource(int sourceIndex)
-    {
-        if (CompareFitness(_solution[_fitnessOffset], _backBuffer[ItemIndex(sourceIndex, _fitnessOffset)]) < 0)
+        // memorize best source
+        else if (BetterFitness(fitness, _solution[_fitnessOffset]))
+        {
             Unsafe.CopyBlock(
                 ref Unsafe.As<double, byte>(ref _solution[0]),
-                ref Unsafe.As<double, byte>(ref _backBuffer[ItemIndex(sourceIndex, 0)]),
+                ref Unsafe.As<double, byte>(ref _backBuffer[ItemIndex(i, 0)]),
                 _sourceSizeInBytes);
+        }
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -314,9 +294,9 @@ public class Colony
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private int CompareFitness(double a, double b)
+    private bool BetterFitness(double a, double b)
     {
-        return (int)FitnessObjective * (a.CompareTo(b));
+        return (a > b) ^ _minimizeFitness;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
