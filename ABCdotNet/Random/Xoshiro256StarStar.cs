@@ -89,40 +89,9 @@ internal sealed class Xoshiro256StarStar
     /// </summary>
     /// <param name="maxValue">The maximum value to be sampled (exclusive).</param>
     /// <returns>A new random sample.</returns>
-    public int Next(int maxValue)
+    public int NextInt(int maxValue)
     {
-        // Notes.
-        // Here we sample an integer value within the interval [0, maxValue). Rejection sampling is used in
-        // order to produce unbiased samples. An alternative approach is:
-        //
-        //  return (int)(NextDoubleInner() * maxValue);
-        //
-        // I.e. generate a double precision float in the interval [0,1) and multiply by maxValue. However the
-        // use of floating point arithmetic will introduce bias therefore this method is not used.
-        //
-        // The rejection sampling method used here operates as follows:
-        //
-        //  1) Calculate N such that  2^(N-1) < maxValue <= 2^N, i.e. N is the minimum number of bits required
-        //     to represent maxValue states.
-        //  2) Generate an N bit random sample.
-        //  3) Reject samples that are >= maxValue, and goto (2) to re-sample.
-        //
-        // Repeat until a valid sample is generated.
-
-        // Log2Ceiling(numberOfStates) gives the number of bits required to represent maxValue states.
-        int bitCount = Log2Ceiling((uint)maxValue);
-
-        // Rejection sampling loop.
-        // Note. The expected number of samples per generated value is approx. 1.3862,
-        // i.e. the number of loops, on average, assuming a random and uniformly distributed maxValue.
-        int x;
-        do
-        {
-            x = (int)(NextULong() >> (64 - bitCount));
-        }
-        while (x >= maxValue);
-
-        return x;
+          return (int)(NextDouble() * maxValue);
     }
 
     /// <summary>
@@ -187,25 +156,5 @@ internal sealed class Xoshiro256StarStar
         z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9UL;
         z = (z ^ (z >> 27)) * 0x94D049BB133111EBUL;
         return z ^ (z >> 31);
-    }
-
-    /// <summary>
-    /// Evaluate the binary logarithm of a non-zero Int32, with rounding up of fractional results.
-    /// I.e. returns the exponent of the smallest power of two that is greater than or equal to the specified number.
-    /// </summary>
-    /// <param name="x">The input value.</param>
-    /// <returns>The exponent of the smallest integral power of two that is greater than or equal to x.</returns>
-    private static int Log2Ceiling(uint x)
-    {
-        // Log2(x) gives the required power of two, however this is integer Log2() therefore any fractional
-        // part in the result is truncated, i.e., the result may be 1 too low. To compensate we add 1 if x
-        // is not an exact power of two.
-        int exp = BitOperations.Log2(x);
-
-        // Return (exp + 1) if x is non-zero, and not an exact power of two.
-        if (BitOperations.PopCount(x) > 1)
-            exp++;
-
-        return exp;
     }
 }

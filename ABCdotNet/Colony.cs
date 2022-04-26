@@ -222,11 +222,11 @@ public class Colony
         // pick a random source (k) that is different from the current source (i)
         int k;
         do
-            k = _rng.Next(Size);
+            k = _rng.NextInt(Size);
         while (k == i);
 
         // pick a random dimension (j)
-        int j = _rng.Next(Dimensions);
+        int j = _rng.NextInt(Dimensions);
 
         // value of (j) dimension of the current source (i)
         double Xij = _frontBuffer[ItemIndex(i, j)];
