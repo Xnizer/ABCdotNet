@@ -34,7 +34,7 @@ public enum BoundaryCondition
     RBC
 }
 
-public class Colony
+public sealed class Colony
 {
     private readonly Xoshiro256StarStar _rng;
 
@@ -87,9 +87,9 @@ public class Colony
     public double MaxValue { get; init; } = 1.0;
 
 
-    public ReadOnlySpan<double> GetSource(int sourceIndex) => GetSource(_frontBuffer, sourceIndex);
-    public double GetFitness(int sourceIndex) => _frontBuffer[ItemIndex(sourceIndex, _fitnessOffset)];
-    public double GetTrialCount(int sourceIndex) => _frontBuffer[ItemIndex(sourceIndex, _trialsOffset)];
+    public ReadOnlySpan<double> Source(int sourceIndex) => SourceFromBuffer(_frontBuffer, sourceIndex);
+    public double Fitness(int sourceIndex) => _frontBuffer[ItemIndex(sourceIndex, _fitnessOffset)];
+    public double TrialCount(int sourceIndex) => _frontBuffer[ItemIndex(sourceIndex, _trialsOffset)];
 
     public ReadOnlySpan<double> Solution => _solution.AsSpan(0, Dimensions);
     public double SolutionFitness => _solution.AsSpan()[_fitnessOffset];
@@ -132,23 +132,23 @@ public class Colony
     {
         if (_running)
             return;
-
         _running = true;
 
         ValidateParameters();
 
         // init
         _sourceSize = Dimensions + 2;
-        _sourceSizeInBytes = (uint)_sourceSize * sizeof(double);
         _fitnessOffset = Dimensions;
         _trialsOffset = _fitnessOffset + 1;
+
+        _sourceSizeInBytes = (uint)_sourceSize * sizeof(double);
 
         _minimizeFitness = FitnessObjective == FitnessObjective.Minimize ? true : false;
 
         _frontBuffer = new double[_sourceSize * Size];
         _backBuffer = new double[_sourceSize * Size];
         _solution = new double[_sourceSize];
-        _solution[_fitnessOffset] = Fitness(_solution, 0);
+        _solution[_fitnessOffset] = Fitness(SourceFromBuffer(_solution, 0));
 
         // initialize sources with random values
         for (int i = 0; i < Size; i++)
@@ -175,33 +175,24 @@ public class Colony
             // onlooker and scout bees
             for (int i = 0; i < Size; i++)
             {
+                double trials = _frontBuffer[ItemIndex(i, _trialsOffset)];
                 double fitness = _frontBuffer[ItemIndex(i, _fitnessOffset)];
                 double probability = fitness / totalFitness;
                 double random = _rng.NextDouble();
 
-                bool copied = false;
                 if (random <= probability)
                 {
-                    ExploreNearbySource(i);
-                    copied = true;
+                    if (!ExploreNearbySource(i) && trials++ > limit)
+                        GenerateRandomSource(i);
                 }
-
-                double trials = _frontBuffer[ItemIndex(i, _trialsOffset)];
-                if (trials > limit)
-                {
+                else if (trials > limit)
                     GenerateRandomSource(i);
-                    copied = true;
-                }
-
-                if (copied == false)
+                else
                     CopySourceFromFrontToBackBuffer(i);
             }
 
             SwapFrontAndBackBuffers();
         }
-
-        //_frontBuffer = Array.Empty<double>();
-        //_backBuffer = Array.Empty<double>();
 
         _running = false;
     }
@@ -213,11 +204,12 @@ public class Colony
         for (int j = 0; j < Dimensions; j++)
             _backBuffer[ItemIndex(sourceIndex, j)] = MinValue + _rng.NextDouble() * (MaxValue - MinValue);
 
-        _backBuffer[ItemIndex(sourceIndex, _fitnessOffset)] = Fitness(_backBuffer, sourceIndex);
+        // calculate fitness and set trials to 0
+        _backBuffer[ItemIndex(sourceIndex, _fitnessOffset)] = Fitness(SourceFromBuffer(_backBuffer, sourceIndex));
         _backBuffer[ItemIndex(sourceIndex, _trialsOffset)] = 0.0;
     }
 
-    private void ExploreNearbySource(int i)
+    private bool ExploreNearbySource(int i)
     {
         // pick a random source (k) that is different from the current source (i)
         int k;
@@ -228,20 +220,20 @@ public class Colony
         // pick a random dimension (j)
         int j = _rng.NextInt(Dimensions);
 
+        int ijIndex = ItemIndex(i, j);
+        int kjIndex = ItemIndex(k, j);
+
         // value of (j) dimension of the current source (i)
-        double Xij = _frontBuffer[ItemIndex(i, j)];
+        double Xij = _frontBuffer[ijIndex];
 
         // value of (j) dimension of the random source (k)
-        double Xkj = _frontBuffer[ItemIndex(k, j)];
+        double Xkj = _frontBuffer[kjIndex];
 
         // pick a random scaling factor between -1 and +1
         double rand = _rng.NextDouble() * 2.0 - 1.0;
 
         // generate a new value for the (j) dimension
         double Vij = Xij + rand * (Xij - Xkj);
-
-        // generate a new source from the current source (i)
-        CopySourceFromFrontToBackBuffer(i);
 
         switch (BoundaryCondition)
         {
@@ -258,37 +250,43 @@ public class Colony
                 break;
         }
 
-        _backBuffer[ItemIndex(i, j)] = Vij;
+        CopySourceFromFrontToBackBuffer(i);
+        _backBuffer[ijIndex] = Vij;
 
-        double fitness = Fitness(_backBuffer, i);
         int fitnessIndex = ItemIndex(i, _fitnessOffset);
-
-        _backBuffer[fitnessIndex] = fitness;
-
         int trialsIndex = ItemIndex(i, _trialsOffset);
 
-        _backBuffer[trialsIndex] = 0.0;
+        double fitness = Fitness(SourceFromBuffer(_backBuffer, i));
 
-        // greedy selection
-        if (BetterFitness(_frontBuffer[fitnessIndex], fitness))
+        if (BetterFitness(fitness, _frontBuffer[fitnessIndex]))
         {
-            CopySourceFromFrontToBackBuffer(i);
-            _backBuffer[trialsIndex]++;
+            _backBuffer[fitnessIndex] = fitness;
+            _backBuffer[trialsIndex] = 0.0;
+
+            // memorize best source
+            if (BetterFitness(fitness, _solution[_fitnessOffset]))
+            {
+                Unsafe.CopyBlock(
+                    ref Unsafe.As<double, byte>(ref _solution[0]),
+                    ref Unsafe.As<double, byte>(ref _backBuffer[ItemIndex(i)]),
+                    _sourceSizeInBytes);
+            }
+
+            return true;
         }
-        // memorize best source
-        else if (BetterFitness(fitness, _solution[_fitnessOffset]))
+        else
         {
-            Unsafe.CopyBlock(
-                ref Unsafe.As<double, byte>(ref _solution[0]),
-                ref Unsafe.As<double, byte>(ref _backBuffer[ItemIndex(i, 0)]),
-                _sourceSizeInBytes);
+            _backBuffer[ijIndex] = _frontBuffer[ijIndex];
+            _backBuffer[trialsIndex]++;
+
+            return false;
         }
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private double Fitness(double[] buffer, int sourceIndex)
+    private double Fitness(ReadOnlySpan<double> source)
     {
-        double objectiveValue = ObjectiveFunction(GetSource(buffer, sourceIndex));
+        double objectiveValue = ObjectiveFunction(source);
 
         return BeeMath.Fitness(objectiveValue);
     }
@@ -306,20 +304,26 @@ public class Colony
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private void CopySourceFromFrontToBackBuffer(int sourceIndex)
+    private int ItemIndex(int sourceIndex)
     {
-        int index = ItemIndex(sourceIndex, 0);
-
-        Unsafe.CopyBlock(
-            ref Unsafe.As<double, byte>(ref _backBuffer[index]),
-            ref Unsafe.As<double, byte>(ref _frontBuffer[index]),
-            _sourceSizeInBytes);
+        return sourceIndex * _sourceSize;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private ReadOnlySpan<double> GetSource(double[] buffer, int sourceIndex)
+    private ReadOnlySpan<double> SourceFromBuffer(double[] buffer, int sourceIndex)
     {
         return new ReadOnlySpan<double>(buffer, sourceIndex * _sourceSize, Dimensions);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void CopySourceFromFrontToBackBuffer(int sourceIndex)
+    {
+        int index = ItemIndex(sourceIndex);
+
+        Unsafe.CopyBlockUnaligned(
+            ref Unsafe.As<double, byte>(ref _backBuffer[index]),
+            ref Unsafe.As<double, byte>(ref _frontBuffer[index]),
+            _sourceSizeInBytes);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

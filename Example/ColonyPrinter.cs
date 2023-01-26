@@ -10,7 +10,7 @@ namespace Example
             Console.WriteLine($"{"Source:",-36}{"Fitness:",-20}{"Trials:"}");
 
             for (int i = 0; i < colony.Size; i++)
-                PrintSource(colony.GetSource(i), colony.GetFitness(i), colony.GetTrialCount(i));
+                PrintSource(colony.Source(i), colony.Fitness(i), colony.TrialCount(i));
 
             Console.WriteLine();
             Console.ForegroundColor = ConsoleColor.Green;
