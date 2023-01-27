@@ -34,7 +34,7 @@ public enum BoundaryCondition
     RBC
 }
 
-public sealed class Colony
+public sealed partial class Colony
 {
     private double[] _frontBuffer;
     private double[] _backBuffer;
