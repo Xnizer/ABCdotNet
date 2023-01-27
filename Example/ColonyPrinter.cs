@@ -9,7 +9,7 @@ namespace Example
         {
             Console.WriteLine($"{"Source:",-36}{"Fitness:",-20}{"Trials:"}");
 
-            for (int i = 0; i < colony.Size; i++)
+            for (int i = 0; i < colony.Settings.Size; i++)
                 PrintSource(colony.Source(i), colony.Fitness(i), colony.TrialCount(i));
 
             Console.WriteLine();

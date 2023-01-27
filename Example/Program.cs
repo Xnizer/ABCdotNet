@@ -1,5 +1,5 @@
 ﻿using ABCdotNet;
-using System;
+using System.ComponentModel.DataAnnotations;
 
 namespace Example
 {
@@ -7,16 +7,19 @@ namespace Example
     {
         static void Main()
         {
-            Colony colony = new Colony(0)
-            {
-                MinValue = -5,
-                MaxValue = 5,
-                Dimensions = 2,
-                Size = 10,
-                Cycles = 100,
-                FitnessObjective = FitnessObjective.Maximize,
-                BoundaryCondition = BoundaryCondition.RBC,
-                ObjectiveFunction = (source) =>
+            ColonySettings settings = ColonySettings.CreateBuilder()
+                .SetSeed(1337)
+                .SetDimensions(2)
+                .SetSize(10)
+                .SetCycles(100)
+                .SetFitnessObjective(FitnessObjective.Maximize)
+                .SetBoundaryCondition(BoundaryCondition.RBC)
+
+                .SetConstraints(
+                    (-100, 100),
+                    (-100, 100))
+
+                .SetObjectiveFunction((source) =>
                 {
                     double x = source[0];
                     double y = source[1];
@@ -28,8 +31,11 @@ namespace Example
                         2.0 * x +
                         4.0 * y +
                         3.0;
-                }
-            };
+                })
+
+                .Build();
+
+            Colony colony = new Colony(settings);
 
             colony.Run();
 
