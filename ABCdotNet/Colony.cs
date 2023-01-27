@@ -36,135 +36,69 @@ public enum BoundaryCondition
 
 public sealed class Colony
 {
-    private readonly Xoshiro256StarStar _rng;
-
     private double[] _frontBuffer;
     private double[] _backBuffer;
 
-    private double[] _solution;
+    private readonly double[] _solution;
 
-    private int _sourceSize;
-    private uint _sourceSizeInBytes;
-    private int _fitnessOffset;
-    private int _trialsOffset;
+    private readonly ColonySettings _settings;
+    private readonly Xoshiro256StarStar _rng;
+    private readonly int _sourceSize;
+    private readonly uint _sourceSizeInBytes;
+    private readonly int _fitnessOffset;
+    private readonly int _trialsOffset;
 
-    private bool _minimizeFitness;
 
-    /// <summary>
-    /// The number of food sources (candidate solutions),
-    /// and employed bees that exploit those sources.
-    /// </summary>
-    public int Size { get; init; } = 10;
+    public ColonySettings Settings => _settings;
 
-    /// <summary>
-    /// The dimensions of a food source position.
-    /// Represent the number of objective function parameters.
-    /// </summary>
-    public int Dimensions { get; init; } = 2;
+    public ReadOnlySpan<double> Solution => _solution.AsSpan(0, _settings.Dimensions);
 
-    /// <summary>
-    /// The number of iterations in the colony simulation.
-    /// </summary>
-    public int Cycles { get; init; } = 20;
-
-    /// <summary>
-    /// Indicates whether the objective of the colony is to minimize or maximize the fitness value of a solution.
-    /// </summary>
-    public FitnessObjective FitnessObjective { get; init; } = FitnessObjective.Minimize;
-    /// <summary>
-    /// Indicates how out-of-bound values of are treated.
-    /// </summary>
-    public BoundaryCondition BoundaryCondition { get; init; } = BoundaryCondition.RBC;
-
-    /// <summary>
-    /// The lower boundary for a value of a parameter in a solution.
-    /// </summary>
-    public double MinValue { get; init; } = -1.0;
-
-    /// <summary>
-    /// The upper boundary for a value of a parameter in a solution.
-    /// </summary>
-    public double MaxValue { get; init; } = 1.0;
-
+    public double SolutionFitness => _solution.AsSpan()[_fitnessOffset];
 
     public ReadOnlySpan<double> Source(int sourceIndex) => SourceFromBuffer(_frontBuffer, sourceIndex);
     public double Fitness(int sourceIndex) => _frontBuffer[ItemIndex(sourceIndex, _fitnessOffset)];
     public double TrialCount(int sourceIndex) => _frontBuffer[ItemIndex(sourceIndex, _trialsOffset)];
 
-    public ReadOnlySpan<double> Solution => _solution.AsSpan(0, Dimensions);
-    public double SolutionFitness => _solution.AsSpan()[_fitnessOffset];
-
-    public ObjectiveFunction ObjectiveFunction { get; init; } = (source) =>
+    public Colony(ColonySettings settings)
     {
-        throw new NotImplementedException();
-    };
+        _settings = settings;
 
-    public Colony(ulong seed)
-    {
-        _rng = new Xoshiro256StarStar(seed);
-
-        _frontBuffer = _backBuffer = _solution = Array.Empty<double>();
-    }
-
-    private void ValidateParameters()
-    {
-        if (MinValue >= MaxValue)
-            throw new Exception($"{nameof(MaxValue)} must be greater then {nameof(MinValue)}.");
-
-        if (Size <= 1)
-            throw new Exception($"{nameof(Size)} must be greater then 1.");
-
-        if (Dimensions <= 0)
-            throw new Exception($"{nameof(Dimensions)} must be greater then 0.");
-
-        if (Cycles <= 0)
-            throw new Exception($"{nameof(Cycles)} must be greater then 0.");
-
-        if (!Enum.IsDefined(FitnessObjective))
-            throw new Exception($"{nameof(FitnessObjective)} has an undefined value.");
-
-        if (!Enum.IsDefined(BoundaryCondition))
-            throw new Exception($"{nameof(BoundaryCondition)} has an undefined value.");
-    }
-
-    bool _running = false;
-    public void Run()
-    {
-        if (_running)
-            return;
-        _running = true;
-
-        ValidateParameters();
-
-        // init
-        _sourceSize = Dimensions + 2;
-        _fitnessOffset = Dimensions;
+        _rng = new Xoshiro256StarStar(settings.Seed);
+        _sourceSize = _settings.Dimensions + 2;
+        _sourceSizeInBytes = (uint)_sourceSize * sizeof(double);
+        _fitnessOffset = _settings.Dimensions;
         _trialsOffset = _fitnessOffset + 1;
 
-        _sourceSizeInBytes = (uint)_sourceSize * sizeof(double);
-
-        _minimizeFitness = FitnessObjective == FitnessObjective.Minimize ? true : false;
-
-        _frontBuffer = new double[_sourceSize * Size];
-        _backBuffer = new double[_sourceSize * Size];
+        _frontBuffer = new double[_sourceSize * _settings.Size];
+        _backBuffer = new double[_sourceSize * _settings.Size];
         _solution = new double[_sourceSize];
+    }
+
+    public void Run()
+    {
+        // initialize solution with a valid value
+        for (int i = 0; i < _settings.Dimensions; i++)
+            _solution[i] = BeeMath.CBC(
+                _solution[i],
+                _settings.Constraints[i].MinValue,
+                _settings.Constraints[i].MaxValue);
         _solution[_fitnessOffset] = Fitness(SourceFromBuffer(_solution, 0));
 
         // initialize sources with random values
-        for (int i = 0; i < Size; i++)
+        for (int i = 0; i < _settings.Size; i++)
             GenerateRandomSource(i);
         SwapFrontAndBackBuffers();
 
-        double limit = Size * Dimensions;
+        double limit = _settings.Size * _settings.Dimensions;
 
         // colony simulation
         int cycle = 0;
-        while (cycle++ < Cycles)
+        while (cycle++ < _settings.Cycles)
         {
             double totalFitness = 0.0;
 
             // employed bee
-            for (int i = 0; i < Size; i++)
+            for (int i = 0; i < _settings.Size; i++)
             {
                 ExploreNearbySource(i);
                 totalFitness += _backBuffer[ItemIndex(i, _fitnessOffset)];
@@ -173,7 +107,7 @@ public sealed class Colony
             SwapFrontAndBackBuffers();
 
             // onlooker and scout bees
-            for (int i = 0; i < Size; i++)
+            for (int i = 0; i < _settings.Size; i++)
             {
                 double trials = _frontBuffer[ItemIndex(i, _trialsOffset)];
                 double fitness = _frontBuffer[ItemIndex(i, _fitnessOffset)];
@@ -193,16 +127,18 @@ public sealed class Colony
 
             SwapFrontAndBackBuffers();
         }
-
-        _running = false;
     }
 
     private void GenerateRandomSource(int sourceIndex)
     {
         // generate a random value for each dimension using the formula:
         // Xij = Xmin.j + rand[0,1] * (Xmax.j - Xmin.j)
-        for (int j = 0; j < Dimensions; j++)
-            _backBuffer[ItemIndex(sourceIndex, j)] = MinValue + _rng.NextDouble() * (MaxValue - MinValue);
+        for (int j = 0; j < _settings.Dimensions; j++)
+        {
+            double min = _settings.Constraints[j].MinValue;
+            double max = _settings.Constraints[j].MaxValue;
+            _backBuffer[ItemIndex(sourceIndex, j)] = min + _rng.NextDouble() * (max - min);
+        }
 
         // calculate fitness and set trials to 0
         _backBuffer[ItemIndex(sourceIndex, _fitnessOffset)] = Fitness(SourceFromBuffer(_backBuffer, sourceIndex));
@@ -214,11 +150,11 @@ public sealed class Colony
         // pick a random source (k) that is different from the current source (i)
         int k;
         do
-            k = _rng.NextInt(Size);
+            k = _rng.NextInt(_settings.Size);
         while (k == i);
 
         // pick a random dimension (j)
-        int j = _rng.NextInt(Dimensions);
+        int j = _rng.NextInt(_settings.Dimensions);
 
         int ijIndex = ItemIndex(i, j);
         int kjIndex = ItemIndex(k, j);
@@ -235,16 +171,19 @@ public sealed class Colony
         // generate a new value for the (j) dimension
         double Vij = Xij + rand * (Xij - Xkj);
 
-        switch (BoundaryCondition)
+        double min = _settings.Constraints[j].MinValue;
+        double max = _settings.Constraints[j].MaxValue;
+
+        switch (_settings.BoundaryCondition)
         {
             case BoundaryCondition.CBC:
-                Vij = BeeMath.CBC(Vij, MinValue, MaxValue);
+                Vij = BeeMath.CBC(Vij, min, max);
                 break;
             case BoundaryCondition.PBC:
-                Vij = BeeMath.PBC(Vij, MinValue, MaxValue);
+                Vij = BeeMath.PBC(Vij, min, max);
                 break;
             case BoundaryCondition.RBC:
-                Vij = BeeMath.RBC(Vij, MinValue, MaxValue);
+                Vij = BeeMath.RBC(Vij, min, max);
                 break;
             default:
                 break;
@@ -286,7 +225,7 @@ public sealed class Colony
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private double Fitness(ReadOnlySpan<double> source)
     {
-        double objectiveValue = ObjectiveFunction(source);
+        double objectiveValue = _settings.ObjectiveFunction(source);
 
         return BeeMath.Fitness(objectiveValue);
     }
@@ -294,7 +233,7 @@ public sealed class Colony
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private bool BetterFitness(double a, double b)
     {
-        return (a > b) ^ _minimizeFitness;
+        return (a > b) ^ (_settings.FitnessObjective == FitnessObjective.Minimize);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -312,7 +251,7 @@ public sealed class Colony
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private ReadOnlySpan<double> SourceFromBuffer(double[] buffer, int sourceIndex)
     {
-        return new ReadOnlySpan<double>(buffer, sourceIndex * _sourceSize, Dimensions);
+        return new ReadOnlySpan<double>(buffer, sourceIndex * _sourceSize, _settings.Dimensions);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
