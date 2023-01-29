@@ -44,12 +44,6 @@ namespace ABCdotNet
                         settings.FitnessObjective,
                         $"Undefinded {nameof(settings.FitnessObjective)} value.");
 
-                if (settings.Constraints.IsEmpty)
-                    throw new InvalidColonySettingException(
-                        nameof(settings.Constraints),
-                        settings.Constraints.ToArray(),
-                        $"{nameof(settings.Constraints)} cannot be empty.");
-
                 if (settings.Constraints.Length != settings.Dimensions)
                     throw new InvalidColonySettingException(
                         nameof(settings.Constraints),

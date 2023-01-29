@@ -24,7 +24,8 @@ namespace ABCdotNet
                     Size = 10,
                     Cycles = 100,
                     BoundaryCondition = BoundaryCondition.CBC,
-                    FitnessObjective = FitnessObjective.Minimize
+                    FitnessObjective = FitnessObjective.Minimize,
+                    _constraints = new Constraint[] { (-100, 100), (-100, 100) }
                 };
             }
 
@@ -91,11 +92,9 @@ namespace ABCdotNet
             /// <exception cref="InvalidColonySettingException"></exception>
             public ColonySettings Build()
             {
-                // TODO: use some default constraints if none has been set.
-
                 Validator.Validate(_settings);
 
-                return _settings;             
+                return (ColonySettings)_settings.MemberwiseClone();
             }
         }
     }
