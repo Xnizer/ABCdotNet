@@ -34,7 +34,7 @@ public enum BoundaryCondition
     RBC
 }
 
-public sealed partial class Colony
+public sealed class Colony
 {
     private double[] _frontBuffer;
     private double[] _backBuffer;
@@ -43,6 +43,7 @@ public sealed partial class Colony
 
     private readonly ColonySettings _settings;
     private readonly Xoshiro256StarStar _rng;
+
     private readonly int _sourceSize;
     private readonly uint _sourceSizeInBytes;
     private readonly int _fitnessOffset;
@@ -56,8 +57,8 @@ public sealed partial class Colony
     public double SolutionFitness => _solution.AsSpan()[_fitnessOffset];
 
     public ReadOnlySpan<double> Source(int sourceIndex) => SourceFromBuffer(_frontBuffer, sourceIndex);
-    public double Fitness(int sourceIndex) => _frontBuffer[ItemIndex(sourceIndex, _fitnessOffset)];
-    public double TrialCount(int sourceIndex) => _frontBuffer[ItemIndex(sourceIndex, _trialsOffset)];
+    public double Fitness(int sourceIndex) => _frontBuffer[IndexOfValue(sourceIndex, _fitnessOffset)];
+    public double TrialCount(int sourceIndex) => _frontBuffer[IndexOfValue(sourceIndex, _trialsOffset)];
 
     public Colony(ColonySettings settings)
     {
@@ -76,17 +77,12 @@ public sealed partial class Colony
 
     public void Run()
     {
-        // initialize solution with a valid value
-        for (int i = 0; i < _settings.Dimensions; i++)
-            _solution[i] = BeeMath.CBC(
-                _solution[i],
-                _settings.Constraints[i].MinValue,
-                _settings.Constraints[i].MaxValue);
-        _solution[_fitnessOffset] = Fitness(SourceFromBuffer(_solution, 0));
+        // initialize solution with a random value
+        GenerateRandomSource(_solution, 0);
 
         // initialize sources with random values
         for (int i = 0; i < _settings.Size; i++)
-            GenerateRandomSource(i);
+            GenerateRandomSource(_backBuffer, i);
         SwapFrontAndBackBuffers();
 
         double limit = _settings.Size * _settings.Dimensions;
@@ -101,7 +97,7 @@ public sealed partial class Colony
             for (int i = 0; i < _settings.Size; i++)
             {
                 ExploreNearbySource(i);
-                totalFitness += _backBuffer[ItemIndex(i, _fitnessOffset)];
+                totalFitness += _backBuffer[IndexOfValue(i, _fitnessOffset)];
             }
 
             SwapFrontAndBackBuffers();
@@ -109,18 +105,18 @@ public sealed partial class Colony
             // onlooker and scout bees
             for (int i = 0; i < _settings.Size; i++)
             {
-                double trials = _frontBuffer[ItemIndex(i, _trialsOffset)];
-                double fitness = _frontBuffer[ItemIndex(i, _fitnessOffset)];
+                double trials = _frontBuffer[IndexOfValue(i, _trialsOffset)];
+                double fitness = _frontBuffer[IndexOfValue(i, _fitnessOffset)];
                 double probability = fitness / totalFitness;
                 double random = _rng.NextDouble();
 
                 if (random <= probability)
                 {
                     if (!ExploreNearbySource(i) && trials++ > limit)
-                        GenerateRandomSource(i);
+                        GenerateRandomSource(_backBuffer, i);
                 }
                 else if (trials > limit)
-                    GenerateRandomSource(i);
+                    GenerateRandomSource(_backBuffer, i);
                 else
                     CopySourceFromFrontToBackBuffer(i);
             }
@@ -129,20 +125,20 @@ public sealed partial class Colony
         }
     }
 
-    private void GenerateRandomSource(int sourceIndex)
+    private void GenerateRandomSource(double[] buffer, int sourceIndex)
     {
         // generate a random value for each dimension using the formula:
         // Xij = Xmin.j + rand[0,1] * (Xmax.j - Xmin.j)
-        for (int j = 0; j < _settings.Dimensions; j++)
+        for (int i = 0; i < _settings.Dimensions; i++)
         {
-            double min = _settings.Constraints[j].MinValue;
-            double max = _settings.Constraints[j].MaxValue;
-            _backBuffer[ItemIndex(sourceIndex, j)] = min + _rng.NextDouble() * (max - min);
+            double min = _settings.Constraints[i].MinValue;
+            double max = _settings.Constraints[i].MaxValue;
+            buffer[IndexOfValue(sourceIndex, i)] = min + _rng.NextDouble() * (max - min);
         }
 
         // calculate fitness and set trials to 0
-        _backBuffer[ItemIndex(sourceIndex, _fitnessOffset)] = Fitness(SourceFromBuffer(_backBuffer, sourceIndex));
-        _backBuffer[ItemIndex(sourceIndex, _trialsOffset)] = 0.0;
+        buffer[IndexOfValue(sourceIndex, _fitnessOffset)] = Fitness(SourceFromBuffer(buffer, sourceIndex));
+        buffer[IndexOfValue(sourceIndex, _trialsOffset)] = 0.0;
     }
 
     private bool ExploreNearbySource(int i)
@@ -156,8 +152,8 @@ public sealed partial class Colony
         // pick a random dimension (j)
         int j = _rng.NextInt(_settings.Dimensions);
 
-        int ijIndex = ItemIndex(i, j);
-        int kjIndex = ItemIndex(k, j);
+        int ijIndex = IndexOfValue(i, j);
+        int kjIndex = IndexOfValue(k, j);
 
         // value of (j) dimension of the current source (i)
         double Xij = _frontBuffer[ijIndex];
@@ -192,8 +188,8 @@ public sealed partial class Colony
         CopySourceFromFrontToBackBuffer(i);
         _backBuffer[ijIndex] = Vij;
 
-        int fitnessIndex = ItemIndex(i, _fitnessOffset);
-        int trialsIndex = ItemIndex(i, _trialsOffset);
+        int fitnessIndex = IndexOfValue(i, _fitnessOffset);
+        int trialsIndex = IndexOfValue(i, _trialsOffset);
 
         double fitness = Fitness(SourceFromBuffer(_backBuffer, i));
 
@@ -207,7 +203,7 @@ public sealed partial class Colony
             {
                 Unsafe.CopyBlock(
                     ref Unsafe.As<double, byte>(ref _solution[0]),
-                    ref Unsafe.As<double, byte>(ref _backBuffer[ItemIndex(i)]),
+                    ref Unsafe.As<double, byte>(ref _backBuffer[IndexOfFirstValue(i)]),
                     _sourceSizeInBytes);
             }
 
@@ -237,13 +233,13 @@ public sealed partial class Colony
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private int ItemIndex(int sourceIndex, int offset)
+    private int IndexOfValue(int sourceIndex, int offset)
     {
         return sourceIndex * _sourceSize + offset;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private int ItemIndex(int sourceIndex)
+    private int IndexOfFirstValue(int sourceIndex)
     {
         return sourceIndex * _sourceSize;
     }
@@ -257,7 +253,7 @@ public sealed partial class Colony
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void CopySourceFromFrontToBackBuffer(int sourceIndex)
     {
-        int index = ItemIndex(sourceIndex);
+        int index = IndexOfFirstValue(sourceIndex);
 
         Unsafe.CopyBlockUnaligned(
             ref Unsafe.As<double, byte>(ref _backBuffer[index]),

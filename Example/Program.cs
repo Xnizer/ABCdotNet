@@ -1,5 +1,4 @@
 ﻿using ABCdotNet;
-using System.ComponentModel.DataAnnotations;
 
 namespace Example
 {
@@ -15,9 +14,7 @@ namespace Example
                 .SetFitnessObjective(FitnessObjective.Maximize)
                 .SetBoundaryCondition(BoundaryCondition.RBC)
 
-                .SetConstraints(
-                    (-100, 100),
-                    (-100, 100))
+                .SetConstraints((-100, 100))
 
                 .SetObjectiveFunction((source) =>
                 {
